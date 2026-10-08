@@ -736,9 +736,8 @@ function coalesceHeadStylesAndBodyScripts(document: Document): void {
     isPinned,
   )) {
     const mergedJs = joinJsChunks(members.map((el) => el.textContent || ""));
-    const stripped = mergedJs ? stripJsComments(mergedJs) : "";
+    const stripped = mergedJs ? stripJsCommentsIfParses(mergedJs) : "";
     if (stripped === null) {
-      // Left unmerged, a script that does not parse fails alone instead of taking every timeline with it.
       for (const el of members) el.textContent = inlineScriptSource(el.textContent || "");
       continue;
     }
@@ -797,8 +796,7 @@ function joinJsChunks(chunks: string[]): string {
     .join("\n");
 }
 
-/** Null when the source does not parse. */
-function stripJsComments(source: string): string | null {
+function stripJsCommentsIfParses(source: string): string | null {
   try {
     return transformSync(source, {
       loader: "js",
@@ -810,13 +808,12 @@ function stripJsComments(source: string): string | null {
   }
 }
 
-/** Whether script text parses; a run that does not is left as separate scripts, so one bad script fails alone. */
 export function parsesAsScript(source: string): boolean {
-  return stripJsComments(source) !== null;
+  return stripJsCommentsIfParses(source) !== null;
 }
 
 function stripJsCommentsParserSafe(source: string): string {
-  return source ? (stripJsComments(source) ?? source) : source;
+  return source ? (stripJsCommentsIfParses(source) ?? source) : source;
 }
 
 function inlineScriptSource(js: string): string {
@@ -1273,12 +1270,11 @@ async function bundleProject(projectDir: string, options?: BundleOptions): Promi
   for (const { scene, chunks } of scriptRuns) {
     const texts = chunks.map((chunk) => (typeof chunk === "string" ? chunk : chunk()));
     const joined = joinJsChunks(texts);
-    // One script per chunk when the run does not parse, so one bad composition script fails alone.
+    const skipsRunMerge = Boolean(scene);
     for (const text of parsesAsScript(joined) ? [joined] : texts.filter(Boolean)) {
       const script = document.createElement("script");
-      // Scene parts are pinned, so the run merge that escapes the other scripts never reaches them.
       if (scene) script.setAttribute(SCENE_PART_ATTR, scene);
-      script.textContent = scene ? inlineScriptSource(text) : text;
+      script.textContent = skipsRunMerge ? inlineScriptSource(text) : text;
       document.body.appendChild(script);
     }
   }
